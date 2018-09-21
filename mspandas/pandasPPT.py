@@ -308,9 +308,9 @@ class Table():
         Returns
         -------
         data: pandas.DataFrame
-            Formatted DataFrame where all values are dtype np.unicode.
+            Formatted DataFrame where all index values are dtype np.unicode.
         """
-        data = kwargs.pop('data',self.df.copy()).copy()
+        data = kwargs.pop('data',self.df.copy())
         dtype_format = kwargs.pop('dtype_format',self.dtype_format)
         axis = kwargs.pop('axis',0)
         if axis in [1,'columns']:
@@ -319,6 +319,8 @@ class Table():
             index = data.index
         else:
             raise(ValueError('Incorrect value for axis. Use 0 or "index" for index, 1 or "columns" for header.'))
+        names=index.names
+        index_vals=[]
         for n in range(index.nlevels):
             vals = index.get_level_values(n)
             if dtype_format is not None:
@@ -332,10 +334,8 @@ class Table():
                             raise NotImplementedError('Not able to convert values of dtype {} to strings.\
                             Convert manually in your DataFrame before passing into Table()'.format(dtype))
             vals = vals.astype(np.unicode)
-            if isinstance(index,pd.MultiIndex):
-                index.set_levels(vals, level=n, inplace=True)
-            elif isinstance(index,pd.Index) and index.nlevels == 1 and n == 0:
-                index = vals
+            index_vals.append(vals)
+        index = pd.MultiIndex.from_arrays(index_vals,names=names)
         if axis in [1,'columns']:
             data.columns = index
         elif axis in [0,'index']:

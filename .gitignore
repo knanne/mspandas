@@ -5,3 +5,6 @@ __pycache__/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+
+# Examples
+examples/example_report.*
