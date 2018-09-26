@@ -2,6 +2,8 @@
 
 `mspandas` is a convenience wrapper on top of [`python-pptx`](http://python-pptx.readthedocs.io/en/latest/) and [`python-docx`](https://python-docx.readthedocs.io/en/latest/) which accepts [`pandas`](https://pandas.pydata.org/) `DataFrames` for writing tables and charts in Microsoft PowerPoint and Word Documents. The project homepage is [github.com/knanne/mspandas](https://github.com/knanne/mspandas)  
 
+This project is not intended to be comprehensive, only provides an efficient resource to bridge the gap between Pandas and Microsoft Reporting. Basic styling options are provided through this API, however custom styling to Microsoft objects (e.g. tables, charts) should be continued using native `python-pptx` / `python-docx` functionality.  
+
 # Background
 
 This library was designed to help automate analytical reporting pipelines, by making a lot of the code reusable. This library started out as multiple reusable functions which kept growing and growing until it was decided to compile them into a library for import. Hopefully, by open sourcing this code, it can be seriously improved (along with my skills in Python development).

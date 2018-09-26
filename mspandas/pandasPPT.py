@@ -2,56 +2,7 @@ import pptx
 import pandas as pd
 import numpy as np
 
-class Handler():
-    """Convenience tools for accessing PPT templates using python-pptx.
-
-    Methods
-    -------
-    map_layouts: Create dictionary object of template layouts in slide master from ppt object, where keys are layout names.
-    map_shapes: Create dictionary object of slide shapes in template layout from layout object, where keys are shape names.
-    """
-
-    def map_layouts(self, ppt, verbose=False):
-        """Create dictionary object of template layouts in slide master from ppt object, where keys are layout names.
-
-        Parameters
-        ----------
-        ppt: ppt.Presentation
-            Powerpoint presentation object.
-
-        Returns
-        -------
-        layout_map: dict
-            Dictionary of ppt layout objects where keys are layout names from slide master.
-        """
-        layout_map = {}
-        for slide in ppt.slide_layouts:
-            layout_map[slide.name] = slide
-            if verbose:
-                print(slide.name)
-        return layout_map
-
-    def map_shapes(self, layout, verbose=False):
-        """Create dictionary object of slide shapes in template layout from layout object, where keys are shape names.
-
-        Parameters
-        ----------
-        layout: ppt.slide.SlideLayout
-            Slide layout object.
-
-        Returns
-        -------
-        shape_map: dict
-            Dictionary of slide shape objects where keys are shape names from template layout.
-        """
-        shape_map = {}
-        for shape in layout.shapes:
-            if shape.is_placeholder:
-                phf = shape.placeholder_format
-                shape_map[shape.name] = phf.idx
-                if verbose:
-                    print('{} index: {}, type: {}'.format(shape.name, phf.idx, phf.type))
-        return shape_map
+from mspandas.utils.ppt import functions
 
 
 class Table():
@@ -61,10 +12,9 @@ class Table():
     Attributes
     ----------
     shape: pptx.shapes.base.BaseShape
-        pptx shape object, placeholder for table graphicframe.
+        pptx shape object, placeholder for table graphic frame.
     df: pd.DataFrame
-        Pandas DataFrame to
-         be converted into table.
+        Pandas DataFrame to be converted into table.
 
     Parameters
     ----------
@@ -132,9 +82,13 @@ class Table():
     last_row: bool
         Whether of not to turn on default PowerPoint styles for last row.
     merge_indices: bool
-        Whether or not to merge table indices (rows in index columns or columns in header rows) by combining adjacent equal values.
+        Whether or not to merge adjacent equal values in table indices (rows in index columns or columns in header rows).
     center_merge: str
-        Whether or not to center the paragraph text after alignment.
+        Whether or not to center the paragraph text after merge.
+    cell_margins: str
+		Keyword for setting cell margin widths. Use one of 'normal', 'none', 'narrow', 'tight', or 'wide'. Keywords are adopted from ppt with a custom tight setting.
+    row_height: float
+        Row height in inches.
 
     Methods
     -------
@@ -191,6 +145,10 @@ class Table():
 
         self.merge_indices = kwargs.pop('merge_indices',True)
         self.center_merge = kwargs.pop('center_merge',True)
+
+        self.cell_margins = kwargs.pop('cell_margins','tight')
+
+        self.row_height = kwargs.pop('row_height',0.15)
 
     def add_totals(self, **kwargs):
         """Aggregate data in DataFrame, applied as column-wise or row-wise by axis argument.
@@ -400,18 +358,18 @@ class Table():
 
         Parameters
         ----------
-        fill: bool
-            Whether or not to fill the cell backgound color.
-        bold: bool
-            Whether or not to bold the text.
         font_size: int
             Cell text font size. For more, see pptx.util.Pt
         font_color: tuple
             Cell text font color. Must be RGB code as tuple of 3 integers, or HEX code as string. For more see pptx.dml.color.RGBColor
+        bold: bool
+            Whether or not to bold the text.
+        fill: bool
+            Whether or not to fill the cell backgound color.
         fill_color: tuple or pptx.enum.dml.MSO_THEME_COLOR
             Color to fill cell background. Must be RGB code as tuple of 3 integers, or instance of pptx.enum.dml.MSO_THEME_COLOR.
         merge_indices: bool
-			Whether or not to merge table indices (rows in index columns or columns in header rows) by combining adjacent equal values.
+            Whether or not to merge adjacent equal values in table indices (rows in index columns or columns in header rows).
         center_merge: str
             Whether or not to center the paragraph text after merge.
         axis: int
@@ -419,10 +377,10 @@ class Table():
 
         """
         table = self.shape.table
-        fill = kwargs.pop('fill',True)
-        bold = kwargs.pop('bold',False)
         font_size = kwargs.pop('font_size',None)
         font_color = kwargs.pop('font_color',None)
+        bold = kwargs.pop('bold',False)
+        fill = kwargs.pop('fill',True)
         fill_color = kwargs.pop('fill_color',self.fill_color)
         merge_indices = kwargs.pop('merge_indices',self.merge_indices)
         center_merge = kwargs.pop('center_merge',self.center_merge)
@@ -505,22 +463,12 @@ class Table():
                     else:
                         raise ValueError('Incorrect value for fill_color. \
                         Please provide one of RGB code as `tuple` of 3 integers, HEX code as string, or an instance of `pptx.enum.dml.MSO_THEME_COLOR`')
-                # apply text formatting for each cell
-                tf = c.text_frame
-                p = tf.paragraphs[0]
-                r = p.runs[0]
-                if not font_size == None:
-                    r.font.size = pptx.util.Pt(font_size)
-                if not font_color == None:
-                    if isinstance(font_color,tuple):
-                        r.font.color.rgb = pptx.dml.color.RGBColor(*font_color)
-                    elif isinstance(font_color,str):
-                        r.font.color.rgb = pptx.dml.color.RGBColor.from_string(font_color[1:]) if font_color.startswith('#') else pptx.dml.color.RGBColor.from_string(font_color)
-                    else:
-                        raise ValueError('Incorrect value for font_color. \
-                        Please provide one of RGB code as `tuple` of 3 integers, or a HEX code as string')
-                if bold:
-                    r.font.bold = True
+                c = functions.format_cell(c,
+                                          fill=fill,
+                                          fill_color=fill_color,
+                                          font_size=font_size,
+                                          font_color=font_color,
+                                          bold=bold)
 
     def style_table(self, **kwargs):
         """Apply styles to PowerPoint table in place.
@@ -533,12 +481,20 @@ class Table():
             Whether or not to fill the cell backgound color of table header rows.
         bold_header: bool
             Whether or not to bold the text in all table header rows.
+        header_font_size: int
+            Header cell text font size. For more, see pptx.util.Pt
+        header_font_color: tuple
+            Header cell text font color. Must be RGB code as tuple of 3 integers, or HEX code as string. For more see pptx.dml.color.RGBColor
         index: bool
             Whether or not to include DataFrame's index in table representation.
         fill_index: bool
             Whether or not to fill the cell backgound color of table index columns.
         bold_index: bool
             Whether or not to bold the text in all table index columns.
+        index_font_size: int
+            Index cell text font size. For more, see pptx.util.Pt
+        index_font_color: tuple
+            Index cell text font color. Must be RGB code as tuple of 3 integers, or HEX code as string. For more see pptx.dml.color.RGBColor
         fill_color: tuple or pptx.enum.dml.MSO_THEME_COLOR
             Color to fill cell background. Must be RGB code as tuple of 3 integers, or instance of pptx.enum.dml.MSO_THEME_COLOR.
         row_banding: bool
@@ -554,9 +510,11 @@ class Table():
         last_row: bool
             Whether of not to turn on default PowerPoint styles for last row.
         merge_indices: bool
-			Whether or not to merge table indices (rows in index columns or columns in header rows) by combining adjacent equal values.
+            Whether or not to merge adjacent equal values in table indices (rows in index columns or columns in header rows).
         center_merge: str
             Whether or not to center the paragraph text after merge.
+        row_height: float
+			Row height in inches.
 
         Notes
         -----
@@ -581,6 +539,7 @@ class Table():
         last_col = kwargs.pop('last_col',self.last_col)
         merge_indices = kwargs.pop('merge_indices',self.merge_indices)
         center_merge = kwargs.pop('center_merge',self.center_merge)
+        row_height = kwargs.pop('row_height',self.row_height)
         if (fill_header or bold_header or not header_font_size == None or not header_font_color == None) and not self.header:
             raise ValueError("Cannot style DataFrame header when table.header attribute is False. \
             First set `table.header = True` to include the DataFrame header in the output table.")
@@ -605,6 +564,8 @@ class Table():
                              fill_color=fill_color,
                              merge_indices=merge_indices,
                              center_merge=center_merge)
+        table = functions.set_row_height(table,
+                                         row_height=row_height)
         table.horz_banding = row_banding
         table.vert_banding = column_banding
         table.first_row = first_row
@@ -625,9 +586,6 @@ class Table():
         This method calls the individual processing methods in sequence, \
         then builds the PowerPoint table by inserting values cell by cell.
         """
-        font_size = self.font_size
-        font_color = self.font_color
-        font_name = self.font_name
         self.insert_table()
         table = self.shape.table
         data = self.df.copy()
@@ -646,31 +604,13 @@ class Table():
         data = self.format_values(data=data)
         data = self.transform(data=data)
         data = data.fillna(self.na_rep)
-        # add data to table cells one value at a time
         for (row,col),x in np.ndenumerate(data.values):
             c = table.cell(row,col)
             c.text = x if isinstance(x,str) else str(x)
-            # apply table text formatting for each cell
-            tf = c.text_frame
-            try:
-                p = tf.paragraphs[0]
-            except IndexError:
-                p = tf.add_paragraph()
-            try:
-                r = p.runs[0]
-            except IndexError:
-                r = p.add_run()
-            if not font_size == None:
-                r.font.size = pptx.util.Pt(font_size)
-            if not font_color == None:
-                if isinstance(font_color,tuple):
-                    r.font.color.rgb = pptx.dml.color.RGBColor(*font_color)
-                elif isinstance(font_color,str):
-                    r.font.color.rgb = pptx.dml.color.RGBColor.from_string(font_color[1:]) if font_color.startswith('#') else pptx.dml.color.RGBColor.from_string(font_color)
-                else:
-                    raise ValueError('Incorrect value for font_color. \
-                    Please provide one of RGB code as `tuple` of 3 integers, or a HEX code as string')
-            if not font_name == None:
-                r.font.name = font_name
+            c = functions.format_cell(c,
+                                      font_size=self.font_size,
+                                      font_color=self.font_color,
+                                      font_name=self.font_name,
+                                      cell_margins=self.cell_margins)
         self.style_table()
         return data
