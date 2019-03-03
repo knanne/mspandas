@@ -1,6 +1,8 @@
 """Convenience tools for accessing PPT templates using python-pptx.
 """
 
+import pandas as pd
+
 import pptx
 
 # Microsoft cell margins in inches

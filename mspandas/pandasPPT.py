@@ -2,17 +2,18 @@ import pptx
 import pandas as pd
 import numpy as np
 
-from mspandas.utils.ppt import functions
+from mspandas.utils.ppt import pptFunctions
+from mspandas.utils.pd import pdFunctions
 
 
 class Table():
     """
-    Abstract table class to convert a Pandas DataFrame into a PowerPoint table shape.
+    Abstract table class to convert a Pandas DataFrame into a PowerPoint table.
 
     Attributes
     ----------
-    shape: pptx.shapes.base.BaseShape
-        pptx shape object, placeholder for table graphic frame.
+    shape: pptx.shapes.placeholder.TablePlaceholder
+        empty pptx table shape, placeholder object for table graphic frame.
     df: pd.DataFrame
         Pandas DataFrame to be converted into table.
 
@@ -89,6 +90,14 @@ class Table():
 		Keyword for setting cell margin widths. Use one of 'normal', 'none', 'narrow', 'tight', or 'wide'. Keywords are adopted from ppt with a custom tight setting.
     row_height: float
         Row height in inches.
+    align_num_cols: str
+        Paragraph alignmnet applied as default to all numeric columns. Default 'center'.
+    align_char_cols: str
+        Paragraph alignmnet applied as default to all string columns. Default 'left'.
+    align_dt_cols: str
+        Paragraph alignmnet applied as default to all datetime columns. Default 'center'.
+    align_col_map: dict
+        Paragraph alignment applied on custom columns by DataFrame column name. Example: {'Column One':'left', 'Column Two':'center'}. For me see pptx.enum.text.PP_ALIGN
 
     Methods
     -------
@@ -96,8 +105,9 @@ class Table():
     transform: Transofrm DataFrame to mirror output representation.
     format_index: Format DataFrame index values as unicode strings.
     format_values: Format DataFrame values as unicode strings.
-    insert_table: Insert a graphic frame table object into the table shape.
+    insert_table: Insert a graphic frame table object into the table placeholder object.
     style_index: Apply styles to DataFrame index in PowerPoint table in place.
+    align_columns: Apply column alignment to table in place.
     style_table: Apply styles to PowerPoint table in place.
     convert: Perform the conversion from DataFrame values to table cells.
     """
@@ -150,6 +160,11 @@ class Table():
 
         self.row_height = kwargs.pop('row_height',0.15)
 
+        self.align_num_cols = kwargs.pop('align_num_cols','center')
+        self.align_char_cols = kwargs.pop('align_char_cols','left')
+        self.align_dt_cols = kwargs.pop('align_dt_cols','center')
+        self.align_col_map = kwargs.pop('align_col_map',{})
+
     def add_totals(self, **kwargs):
         """Aggregate data in DataFrame, applied as column-wise or row-wise by axis argument.
 
@@ -199,7 +214,7 @@ class Table():
         	# add label as category and append
         	data.index = data.index.add_categories(totals_label)
         	data = pd.concat([data, c_totals], axis=0)
-        data = data.reindex_axis(ordered_columns, axis=1)
+        data = data.reindex(ordered_columns, axis=1)
         data.index.names = names
         if axis in [1,'columns']:
             return data.T
@@ -332,26 +347,25 @@ class Table():
         data = data.astype(np.unicode)
         return data
 
-    def insert_table(self, **kwargs):
-        """Insert a graphic frame table object into the table shape.
+    def insert_table(self):
+        """Insert a graphic frame table object into the table placeholder.
 
-        Parameters
-        ----------
-        overwrite: bool
-            Force inserting of a table into shape. Overwrites any existing table.
+        Notes
+        -----
+        Placeholders become invalid after inserting a graphic frame object. The new shape is the return value of the insert_table() call and may also be obtained from the placeholders collection using the same idx key.
+        For more on this see https://python-pptx.readthedocs.io/en/latest/user/placeholders-using.html#insert-content-into-a-placeholder
 
         """
-        overwrite = kwargs.pop('overwrite',False)
         rows,cols = self.transform().shape
         if self.column_totals:
             rows+=1
         if self.row_totals:
             cols+=1
-        if not self.shape.has_table or overwrite and not self.shape.shape_id == None:
+        if self.shape.is_placeholder and (not self.shape.has_table and not self.shape.shape_id == None):
             self.shape = self.shape.insert_table(rows=rows,
                                                  cols=cols)
         else:
-            raise Warning('Shape object already contains a table graphic frame.')
+            raise Warning('Shape object is not a placeholder or already contains a table graphic frame.')
 
     def style_index(self, **kwargs):
         """Apply styles to DataFrame index in PowerPoint table in place.
@@ -463,12 +477,75 @@ class Table():
                     else:
                         raise ValueError('Incorrect value for fill_color. \
                         Please provide one of RGB code as `tuple` of 3 integers, HEX code as string, or an instance of `pptx.enum.dml.MSO_THEME_COLOR`')
-                c = functions.format_cell(c,
+                c = pptFunctions.format_cell(c,
                                           fill=fill,
                                           fill_color=fill_color,
                                           font_size=font_size,
                                           font_color=font_color,
                                           bold=bold)
+
+    def align_columns(self, **kwargs):
+        """Apply column alignment to table in place.
+
+        Parameters
+        ----------
+        align_num_cols: str
+            Paragraph alignmnet applied as default to all numeric columns. Default 'center'.
+        align_char_cols: str
+            Paragraph alignmnet applied as default to all string columns. Default 'left'.
+        align_dt_cols: str
+            Paragraph alignmnet applied as default to all datetime columns. Default 'center'.
+        align_col_map: dict
+            Paragraph alignment applied on custom columns by DataFrame column name. Example: {'Column One':'left', 'Column Two':'center'}. For me see pptx.enum.text.PP_ALIGN
+
+        """
+        align_num_cols = kwargs.pop('align_num_cols',self.align_num_cols)
+        align_char_cols = kwargs.pop('align_char_cols',self.align_char_cols)
+        align_dt_cols = kwargs.pop('align_dt_cols',self.align_dt_cols)
+        align_col_map = kwargs.pop('align_col_map',self.align_col_map)
+        table = self.shape.table
+        data = self.df.copy()
+        rows,cols = self.transform().shape
+        col_offset = cols - len(data.columns)
+        row_offset = rows - len(data.index)
+        num_col_cells = cols+1 if self.row_totals else cols
+        num_row_cells = rows+1 if self.column_totals else rows
+        for j in range(num_col_cells):
+            if j < col_offset:
+                # index columns
+                alignment = 'left'
+            elif j >= len(data.columns):
+                # totals column
+                alignment = 'center'
+            else:
+                name = data.columns[j]
+                dtype = data.loc[:,name].values.dtype
+                if name in align_col_map.keys():
+                    alignment = align_col_map[name]
+                else:
+                    if np.issubdtype(dtype,np.number):
+                        alignment =  align_num_cols
+                    elif np.issubdtype(dtype,np.char):
+                        alignment = align_char_cols
+                    elif np.issubdtype(dtype,np.datetime64):
+                        alignment = align_dt_cols
+                    else:
+                        raise Warning('No default alignment defined for columns to dtype {}.\
+                        Alignment will be PowerPoint default'.format(dtype))
+            for i in range(num_row_cells):
+                if i < row_offset:
+                    # skip header rows
+                    continue
+                c = table.cell(i,j)
+                tf = c.text_frame
+                p = tf.paragraphs[0]
+                if isinstance(alignment,pptx.enum.text.PP_ALIGN):
+                    p.alignment = alignment
+                elif isinstance(alignment,str):
+                    p.alignment = pptx.enum.text.PP_ALIGN.__dict__[alignment.upper()]
+                else:
+                    raise ValueError("Incorrect value for alignment. \
+                    Please provide a string like 'center' or 'left', or an instance of `pptx.enum.text.PP_ALIGN`")
 
     def style_table(self, **kwargs):
         """Apply styles to PowerPoint table in place.
@@ -564,7 +641,7 @@ class Table():
                              fill_color=fill_color,
                              merge_indices=merge_indices,
                              center_merge=center_merge)
-        table = functions.set_row_height(table,
+        table = pptFunctions.set_row_height(table,
                                          row_height=row_height)
         table.horz_banding = row_banding
         table.vert_banding = column_banding
@@ -607,10 +684,11 @@ class Table():
         for (row,col),x in np.ndenumerate(data.values):
             c = table.cell(row,col)
             c.text = x if isinstance(x,str) else str(x)
-            c = functions.format_cell(c,
+            c = pptFunctions.format_cell(c,
                                       font_size=self.font_size,
                                       font_color=self.font_color,
                                       font_name=self.font_name,
                                       cell_margins=self.cell_margins)
         self.style_table()
+        self.align_columns()
         return data
